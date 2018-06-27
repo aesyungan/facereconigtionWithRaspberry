@@ -14,16 +14,20 @@ import java.awt.Graphics;
 import java.awt.Image;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.URI;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.imageio.ImageIO;
 import javax.swing.ImageIcon;
 import javax.swing.JOptionPane;
+import org.java_websocket.client.WebSocketClient;
+import org.java_websocket.handshake.ServerHandshake;
 import sun.misc.IOUtils;
 
 /**
@@ -35,7 +39,7 @@ public class AppFace extends javax.swing.JFrame {
     //public final Timer drawingTimer;
     private FSDKCam.HCamera cameraHandle;
     private String userName;
-
+    WebSocketClient mWs = null;
     private List<FSDK.FSDK_FaceTemplate.ByReference> faceTemplates; // set of face templates (we store 10)
 
     // program states: waiting for the user to click a face
@@ -56,7 +60,6 @@ public class AppFace extends javax.swing.JFrame {
     Socket sock = null;
     public final int FILE_SIZE = 58087;
     public boolean isOpenDialog = false;
-    public int facesCount = 0;
 
     /**
      * Creates new form AppFace
@@ -96,6 +99,7 @@ public class AppFace extends javax.swing.JFrame {
             }
         };
         thread.start();
+        InitSocketClientWeb();
     }
 
     /**
@@ -539,7 +543,8 @@ public class AppFace extends javax.swing.JFrame {
                     byte[] mybytearray = new byte[FILE_SIZE];
                     InputStream is = sock.getInputStream();
                     byte[] bytes = IOUtils.readFully(is, -1, false);
-                    faceDetection(bytes);
+                    faceDetection(bytes);//inicia la detecion de rostro
+
                     // mostrarImagenDesktop(bytes);
                     //crearVideo(bytes);
                     // System.out.println("File " + " downloaded (" + current + " bytes read)");
@@ -612,21 +617,28 @@ public class AppFace extends javax.swing.JFrame {
                     // FSDK.LoadImageFromBuffer(imageHandle, imageInByte, 200, 200, 0, FSDK_IMAGEMODE.FSDK_IMAGE_COLOR_24BIT);
                     // baos.close();
                 } catch (IOException ex) {
-                   // Logger.getLogger(LiveRecognitionView.class.getName()).log(Level.SEVERE, null, ex);
+                    // Logger.getLogger(LiveRecognitionView.class.getName()).log(Level.SEVERE, null, ex);
 
                 }
 
                 Image awtImage[] = new Image[1];
+
                 if (FSDK.SaveImageToAWTImage(imageHandle, awtImage, FSDK.FSDK_IMAGEMODE.FSDK_IMAGE_COLOR_32BIT) == FSDK.FSDKE_OK) {
 
-                    BufferedImage bufImage = null;
                     FSDK.TFacePosition.ByReference facePosition = new FSDK.TFacePosition.ByReference();
 
                     long[] IDs = new long[256]; // maximum of 256 faces detected
                     long[] faceCount = new long[1];
-
+                    int facesReconosing = 0;
                     FSDK.FeedFrame(tracker, 0, imageHandle, faceCount, IDs);
-
+                    BufferedImage bufImage = null;
+                    Graphics gr = null;
+                    if (faceCount[0] >= 1) {
+                        bufImage = new BufferedImage(awtImage[0].getWidth(null), awtImage[0].getHeight(null), BufferedImage.TYPE_INT_RGB);
+                        gr = bufImage.getGraphics();
+                        gr.drawImage(awtImage[0], 0, 0, null);
+                        gr.setColor(Color.green);
+                    }
                     for (int i = 0; i < faceCount[0]; ++i) {
                         //  txtNumUser.setText(Long.toString(IDs.length));
                         FSDK.GetTrackerFacePosition(tracker, 0, IDs[i], facePosition);
@@ -634,11 +646,6 @@ public class AppFace extends javax.swing.JFrame {
                         int left = facePosition.xc - (int) (facePosition.w * 0.6);
                         int top = facePosition.yc - (int) (facePosition.w * 0.5);
                         int w = (int) (facePosition.w * 1.2);
-
-                        bufImage = new BufferedImage(awtImage[0].getWidth(null), awtImage[0].getHeight(null), BufferedImage.TYPE_INT_ARGB);
-                        Graphics gr = bufImage.getGraphics();
-                        gr.drawImage(awtImage[0], 0, 0, null);
-                        gr.setColor(Color.green);
 
                         String[] name = new String[1];
                         int res = FSDK.GetAllNames(tracker, IDs[i], name, 65536); // maximum of 65536 characters
@@ -648,13 +655,14 @@ public class AppFace extends javax.swing.JFrame {
                             FontMetrics fm = gr.getFontMetrics();
                             java.awt.geom.Rectangle2D textRect = fm.getStringBounds(name[0], gr);
                             gr.drawString(name[0], (int) (facePosition.xc - textRect.getWidth() / 2), (int) (top + w + textRect.getHeight()));
-                            facesCount = 0;
+                            // facesCount = 0;
+                            facesReconosing++;
                         } else {
                             System.out.println("cara no reconocido");
-                            facesCount++;
+                            SendMail.facesCount++;
 
                         }
-                        txtNumeroIntentos.setText(Integer.toString(facesCount));
+                        txtNumeroIntentos.setText(Integer.toString(SendMail.facesCount));
                         if (isOpenDialog == false) {
                             if (mouseX >= left && mouseX <= left + w && mouseY >= top && mouseY <= top + w) {
                                 gr.setColor(Color.red);
@@ -674,16 +682,38 @@ public class AppFace extends javax.swing.JFrame {
                                     isOpenDialog = false;
                                 }
                             }
+
                             programState = programStateRecognize;
                             gr.drawRect(left, top, w, w); // draw face rectangle
-                            if (facesCount > 6) {
-                                SendMail.sendEmail(bufImage);
-                                //  Util.saveImage(bufImage);
 
-                            }
                         }
 
                     }
+                    if (faceCount[0] == facesReconosing) {
+                        SendMail.facesCount = 0;
+                    }
+
+                    if (SendMail.facesCount > 7) {
+
+                        //SendMail.sendEmail(Convert.toBufferedImage(imageInByte));
+                        SendMail.sendEmail(bufImage);
+                        //  Util.saveImage(bufImage);
+
+                    }
+
+                    //envia la imagen a la web
+                    final BufferedImage auxbuffer = bufImage;
+                    Thread thread = new Thread() {
+                        public void run() {
+
+                            if (auxbuffer == null) {
+                                sendImageToWeb(imageInByte, mWs);//envia a la web
+                            } else {
+                                sendImageToWeb(Convert.toByte(auxbuffer), mWs);//envia a la web
+                            }
+                        }
+                    };
+                    thread.start();
                     ///  BufferedImage auxBufer = bufImage;
                     /*
             try {
@@ -706,7 +736,14 @@ public class AppFace extends javax.swing.JFrame {
                 Logger.getLogger(appCamera.class.getName()).log(Level.SEVERE, null, ex);
             }*/
                     // display current frame
-                    mainPanel.getParent().getGraphics().drawImage((bufImage != null) ? bufImage : awtImage[0], mainPanel.getX(), mainPanel.getY(), null);
+                    final BufferedImage bufImageAUX = bufImage;
+                    final Image awtImageAUX = awtImage[0];
+                    Thread thread2 = new Thread() {
+                        public void run() {
+                            mainPanel.getParent().getGraphics().drawImage((bufImageAUX != null) ? bufImageAUX : awtImageAUX, mainPanel.getX(), mainPanel.getY(), null);
+                        }
+                    };
+                    thread2.start();
 
                     // mainPanel.getParent().getGraphics().drawImage((bufImage != null) ? resize(bufImage, bufImage.getWidth() * 2, bufImage.getHeight() * 2) : toBufferedImageAndSize(awtImage[0]), mainPanel.getX(), mainPanel.getY(), null);
                     /*
@@ -729,6 +766,63 @@ public class AppFace extends javax.swing.JFrame {
 
     public void getUserNumber() {
         //FSDK.gett
+
+    }
+
+    public void InitSocketClientWeb() {
+
+        try {
+
+            mWs = new WebSocketClient(new URI("ws://127.0.0.1:8080/videovigilancia/livevideo")) {//seconecta al servidor de socket que esta en tomcat
+                @Override
+                public void onOpen(ServerHandshake sh) {
+                    //throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+                    System.out.println("Se establecio la connecion con elservidor->" + sh.toString());
+                }
+
+                @Override
+                public void onMessage(String string) {
+                    throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+                }
+
+                @Override
+                public void onClose(int i, String string, boolean bln) {
+                    // throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+                    System.out.println("el cliente finalizo : " + i + " - " + string + "  " + bln);
+                }
+
+                @Override
+                public void onError(Exception excptn) {
+                    //throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+                    System.out.println("ocurrio un error en el cliente->" + excptn.getMessage());
+                }
+            };
+            mWs.connect();///conecta a java web socktet
+            //enviar aqui las imagenes que optiene el Raspberry  puede enviar las imagenes en fromato byte[] 
+            //byte[]  bytes=los bytes de la imagen
+            //mWs.send(bytes); 
+            //enviar imagenes de la pc 
+            //sendImage("E://img//assasing.png", mWs);
+
+            //sendImage(webcam, mWs);
+        } catch (Exception e) {
+            System.out.println("Error->" + e.getMessage());
+        } finally {
+            // mWs.close();
+        }
+    }
+
+    public void sendImageToWeb(final byte[] data, final WebSocketClient mWs) {
+        Thread thread = new Thread() {
+            public void run() {
+                try {
+                    mWs.send(data);
+                } catch (Exception e) {
+                    System.out.println("Error AL enviar  una imagen a la web->" + e.getMessage());
+                }
+            }
+        };
+        thread.start();
 
     }
 }

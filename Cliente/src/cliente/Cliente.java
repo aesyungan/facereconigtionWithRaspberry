@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.util.List;
 import java.util.Scanner;
 import javax.imageio.ImageIO;
 
@@ -50,7 +51,23 @@ public class Cliente {
 
         Socket sock = null;
         try {
+            Webcam webcam = null;
+            List<Webcam> lstWebcam = Webcam.getWebcams();
+            System.out.println("* Lista de Camaras :");
+            int idCamera = 0;
+            int totalCameras = lstWebcam.size();
+            for (int i = 0; i < lstWebcam.size(); i++) {
+                System.out.println("#-- N: " + i + ": camara ->" + lstWebcam.get(i).getName().toString());
+            }
 
+            do {
+                System.out.println("Seleccione su Numero de Camara:\n");
+                Scanner s2 = new Scanner(System.in);
+                idCamera = s2.nextInt();
+                System.out.println("Camara Seleccionado: " + idCamera);
+
+            } while ((idCamera < 0) && (idCamera >= totalCameras));
+            webcam = lstWebcam.get(idCamera);
             System.out.println("Ingrese la ip del servidor Socket  ejemplo: 192.168.43.105 ");
             Scanner s = new Scanner(System.in);
             String host = s.next();
@@ -59,7 +76,7 @@ public class Cliente {
             int puerto = s2.nextInt();
             System.out.println("Connecting...");
 
-            Webcam webcam = Webcam.getDefault();
+            //Webcam webcam = Webcam.getDefault();
             //webcam.setViewSize(new Dimension(176, 144));//windows
             // webcam.setViewSize(new Dimension(160, 120));//raspberry
             // webcam.setViewSize(new Dimension(640,480)); // Vga
